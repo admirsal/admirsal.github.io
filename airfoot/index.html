@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#f5f5f7" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="airfoot-version" content="AF08-1">
   <title>AirFoot — WebBluetooth & WebMIDI Pedal Configurator</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/svg+xml" href="icon.svg" />
@@ -28,6 +29,7 @@
 .menu button:disabled,.dialog button:disabled{color:#a0a3ad;cursor:not-allowed}.menu button:disabled svg{color:inherit}.menu button:disabled:hover{background:none}
 .transport-title,.transport-help{display:block}.transport-text{min-width:0}.transport:disabled{background:#f7f8fa;border-color:#eceef2}.transport:disabled .transport-icon{background:#eceef2;color:#a0a3ad}.transport:disabled .transport-help{color:#a0a3ad}.transport:disabled:hover{background:#f7f8fa;border-color:#eceef2}
 #connectionFeedback,#compatInfo{margin:14px 0 0}#btnDisconnect:disabled{color:#a0a3ad}#btnUseMidi,#btnReload{border:1px solid var(--line);background:#f9fafb;color:#454651;border-radius:11px;padding:10px 14px}
+.transport.primary{border-color:#8bbcff;background:#f3f8ff}.disconnect-button{border:1px solid #d3d6df;border-radius:11px;background:#fff;color:#393c45;padding:10px 16px;font-weight:650;width:100%;margin-top:16px}.pedal.input-down .pedal-knob{transform:translateY(3px);box-shadow:0 0 0 7px #eaf3ff}.expression-reading{display:flex;align-items:baseline;gap:4px}.expression-reading strong{font-size:22px;color:#252732}.expression-range{font-size:11px;color:#797d87}#operatorLog{max-height:260px;overflow:auto;font-size:13px;line-height:1.6}#operatorLog div{padding:6px 0;border-bottom:1px solid #efeff2}details{margin-top:18px}summary{cursor:pointer;font-size:12px;color:#747986}.editor-caption{display:block;margin:4px 0 14px}#connectionPanel .transport-title,#connectionPanel .transport-help{display:block}.connection-state{max-width:290px}.connection-state #connStatus{line-height:1.3}
 </style></head><body>
 <div class="app">
 <header class="topbar"><div class="top-inner">
@@ -51,10 +53,11 @@
   <div class="workspace">
     <div class="left-col"><div class="section-header"><span class="section-name">Footswitches</span></div>
       <div class="pedals" id="switchGrid" role="group" aria-label="Footswitch selection"></div>
-      <div class="expression"><div class="expression-top"><span class="expression-label">Expression pedal</span><span class="expression-value" id="exprLabel">Awaiting signal</span><strong id="exprValueText"></strong></div><div class="meter"><div class="meter-fill" id="exprBarFill"></div></div></div>
+      <div class="expression"><div class="expression-top"><span class="expression-label">Expression pedal</span><span class="expression-value" id="exprLabel">Awaiting signal</span><span class="expression-reading"><strong id="exprValueText">—</strong><span class="expression-range">/ 127</span></span></div><div class="meter"><div class="meter-fill" id="exprBarFill"></div></div></div>
 
     </div>
     <section class="editor" aria-label="Switch action editor"><div class="editor-header"><h2 class="editor-title" id="editorTitle">Switch 1</h2></div>
+      <span class="editor-caption" id="editorContext">Bank 1 · Switch 1 · Tap</span>
       <div class="segments" role="tablist" aria-label="Press gesture"><button class="segment active" role="tab" data-gesture="0" aria-selected="true">Tap</button><button class="segment" role="tab" data-gesture="1" aria-selected="false">Double tap</button><button class="segment" role="tab" data-gesture="2" aria-selected="false">Hold</button></div>
       <div class="field">
         <label for="actionType">Action</label>
@@ -93,7 +96,8 @@
 <div class="backdrop" id="modalRoot" hidden><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><div class="dialog-head"><h2 id="dialogTitle"></h2><button class="close" id="closeDialog" aria-label="Close">×</button></div><div id="dialogContent"></div></div></div>
 
 <div id="connectionPanel" hidden>
-<p class="dialog-sub">Choose how to connect your pedal.</p>
+<p class="dialog-sub" id="connectionIntro">Connect wirelessly to configure your pedal.</p>
+<p id="connectedDetails" hidden></p>
 <p id="compatInfo" hidden></p>
 <button class="transport" id="btnBleConnect"><span class="transport-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 7 10 10-5 4V3l5 4L7 17"/></svg></span><span class="transport-text"><span class="transport-title">Bluetooth</span><span class="transport-help" id="bleHelp">Connect directly to your pedal</span></span><span class="transport-arrow" aria-hidden="true">›</span></button>
 <button class="transport" id="btnMidiConnect"><span class="transport-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="8" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="16" cy="12" r="1"/></svg></span><span class="transport-text"><span class="transport-title">System MIDI</span><span class="transport-help" id="midiHelp">Use your system’s MIDI connection</span></span><span class="transport-arrow" aria-hidden="true">›</span></button>
@@ -104,9 +108,10 @@
     <button id="btnUseMidi">Use selected ports</button>
   </div>
 
-<button id="btnDisconnect" class="inline-link">Disconnect pedal</button>
+<p class="dialog-bottom" id="powerHelp">USB or external 5 V powers the pedal. Configuration is wireless; USB provides diagnostics, not USB MIDI. Battery charge is unavailable.</p>
+<button id="btnDisconnect" class="disconnect-button" hidden>Disconnect from configurator</button>
 </div>
-<div id="activityPanel" hidden><p id="configStatus" role="status">Local defaults. Read from the pedal to verify configuration. Persistence unverified.</p><div id="sysexLog"></div><p id="offlineStatus" role="status"></p><button id="btnReload" hidden>Update available — Reload (discards local edits)</button></div>
+<div id="activityPanel" hidden><p id="configStatus" role="status">Local defaults · read from the pedal to verify configuration.</p><div id="operatorLog" role="log"></div><details><summary>Protocol diagnostics</summary><p>Mapping readback confirms device RAM. Flash persistence requires a reboot check; an ACK alone does not confirm it.</p><div id="sysexLog"></div><p id="offlineStatus" role="status"></p><button id="btnReload" hidden>Update available — Reload (discards local edits)</button></details></div>
 <div id="shortcutsPanel" hidden><div class="modal-list">
 <div class="shortcut" id="chordDownPill"><b>1 + 2</b><span>Previous bank</span></div>
 <div class="shortcut" id="chordTempoPill"><b>2 + 3</b><span>Tap tempo</span></div>
@@ -148,7 +153,7 @@
         return x & 0x7f;
       }
 
-      function encodeWriteMapping(slot) {
+      function encodeWriteMapping(slot, fullBytes = false) {
         const payload = [
           slot.bank & 0x7f,
           slot.sw & 0x7f,
@@ -159,12 +164,16 @@
           slot.val_on & 0x7f,
           slot.val_off & 0x7f
         ];
+        if (fullBytes) {
+          payload.push([slot.chan_or_mod, slot.code, slot.val_on, slot.val_off].reduce((bits,v,i) => bits | ((v >> 7) & 1) << i, 0));
+          return [0xf0,0x7d,0x0b,...payload,payload.reduce((x,v) => x ^ v,0),0xf7];
+        }
         const csum = xorChecksum(payload);
         return [0xf0, 0x7d, 0x01, ...payload, csum, 0xf7];
       }
 
-      function encodeReadRequest(bank, sw, gesture) {
-        return [0xf0, 0x7d, 0x02, bank & 0x7f, sw & 0x7f, gesture & 0x7f, 0xf7];
+      function encodeReadRequest(bank, sw, gesture, fullBytes = false) {
+        return [0xf0, 0x7d, fullBytes ? 0x0c : 0x02, bank & 0x7f, sw & 0x7f, gesture & 0x7f, 0xf7];
       }
 
       function encodeSelectBank(bank) {
@@ -209,6 +218,15 @@
           return { valid: false, error: "malformed_frame" };
         }
         const cmd = frame[2];
+        if ([0x0b,0x0d].includes(cmd) && frame.length === 14) {
+          const payload = frame.slice(3,12);
+          if (!payload.every(v => bounded(v,127)) || frame[11] > 15 || payload.reduce((x,v) => x ^ v,0) !== frame[12])
+            return {valid:false,error:"checksum_mismatch"};
+          const high=frame[11];
+          return {valid:true,cmd,kind:cmd === 0x0d ? "READ_DUMP" : "WRITE_MAP",frame,
+            bank:frame[3],sw:frame[4],gesture:frame[5],type:frame[6],
+            ...Object.fromEntries(["chan_or_mod","code","val_on","val_off"].map((key,i)=>[key,frame[7+i] | ((high >> i) & 1) << 7]))};
+        }
         if ((cmd === 0x01 || cmd === 0x03) && frame.length === 13) {
           const payload = frame.slice(3, 11);
           const expected = xorChecksum(payload);
@@ -264,7 +282,17 @@
             bank: frame[3]
           };
         }
-        if (cmd === 0x06 && frame.length === 9) {
+        if ((cmd === 0x07 && [7,8].includes(frame.length)) || (cmd === 0x08 && frame.length === 8)) {
+          if (!bounded(frame[3], 7) || !bounded(frame[4], 15) || !bounded(frame[5], 127) ||
+              (cmd === 0x08 && !bounded(frame[6], 127))) return {valid:false, error:"invalid_expression"};
+          return {valid:true, kind:cmd === 0x07 ? "DEVICE_STATE" : "EXPRESSION", bank:frame[3],
+            channel:frame[4], cc:frame[5], capabilities:cmd === 0x07 && frame.length === 8 ? frame[6] : 0, value:cmd === 0x08 ? frame[6] : undefined};
+        }
+        if (cmd === 0x09 && [10,15].includes(frame.length) && frame.slice(3,-1).every(v => bounded(v,127)) && frame[3] < 32 && frame[8] < 16 && (frame.length === 10 || frame[13] < 16)) {
+          return {valid:true, kind:"INPUT_STATE", mask:frame[3],
+            uptime:frame.slice(4,9).reduce((n,v,i) => n + v * 2 ** (7*i), 0)};
+        }
+        if (cmd === 0x06 && [9,14].includes(frame.length)) {
           return {
             valid: true,
             cmd,
@@ -430,6 +458,11 @@
       let midiReconnect = null;
       let midiReconnecting = false;
       const preferSystemMidi = /Mac/.test(navigator.platform || "") && Boolean(navigator.requestMIDIAccess);
+      let midiDenied = false;
+      let expressionMapping = null;
+      let expressionTelemetry = false;
+      let fullByteMappings = false;
+      let inputMask = 0;
       let connectionBusy = false;
       let localPreview = false;
       let confirmedBeforePreview = null;
@@ -444,11 +477,13 @@
       function status(text) {
         $("configStatus").textContent = text;
         logText(text);
+        if (!text.startsWith("Communicating") && !text.startsWith("Disconnected.") && !text.startsWith("Connected."))
+          operatorEvent(text.replace(/Persistence unverified.*|; expression mapping and persistence unverified\.|; persistence unverified\./g, "").replace(/ \(deferred NVS\)\./g, "").trim());
         let concise = text;
-        if (text.startsWith("Mapping accepted")) concise = "Applied · RAM readback verified. Persistence unverified.";
-        else if (text.startsWith("Mapping read")) concise = "Read from pedal · persistence unverified.";
-        else if (text.startsWith("Bank mappings")) concise = "Bank read · persistence unverified.";
-        else if (text.startsWith("Bank accepted")) concise = "Bank selected · persistence unverified.";
+        if (text.startsWith("Mapping accepted")) concise = "Applied · readback verified";
+        else if (text.startsWith("Mapping read")) concise = "Read from pedal";
+        else if (text.startsWith("Bank mappings")) concise = "Bank read from pedal";
+        else if (text.startsWith("Bank accepted")) concise = "Bank selected";
         else if (text.startsWith("Connected.")) concise = "Connected · read bank to verify mappings.";
         else if (text.startsWith("Disconnected.")) concise = "Disconnected · device state unverified.";
         else if (text.startsWith("LOCAL IMPORT")) concise = "Local import · nothing sent. Reconnect to discard.";
@@ -458,6 +493,8 @@
         else if (/rejected/i.test(text)) concise = "Pedal rejected the change · nothing confirmed.";
         else if (/No connected/i.test(text)) concise = "Connect your pedal before applying.";
         else if (/7-bit/i.test(text)) concise = "Cannot send this value with the current device format. See Activity.";
+        $("configStatus").dataset.detail = text;
+        $("configStatus").textContent = concise;
         $("draftStatus").textContent = concise;
         $("draftStatus").title = text;
         if (!$("connectionPanel").hidden) {
@@ -467,6 +504,7 @@
           $("connectionFeedback").textContent = message;
           $("connectionFeedback").hidden = false;
         }
+        if (drafts.has(slotKey()) && /^(Connected\.|Disconnected\.)/.test(text)) editorStatus();
       }
       function updateApply() {
         const available = connected() && !localPreview && !operationBusy && !connectionBusy;
@@ -477,14 +515,14 @@
         ["btnSyncBank", "btnReadSlot"].forEach(id => { $(id).disabled = !available; $(id).title = reason; });
         $("btnDisconnect").disabled = !connected() || operationBusy || connectionBusy;
         $("btnUseMidi").disabled = !midiAccess || operationBusy || connectionBusy;
-        $("btnBleConnect").disabled = !window.isSecureContext || !navigator.bluetooth?.requestDevice || operationBusy || connectionBusy;
-        $("btnMidiConnect").disabled = !window.isSecureContext || !navigator.requestMIDIAccess || operationBusy || connectionBusy;
+        $("btnBleConnect").disabled = connected() || (preferSystemMidi && midiDenied) || !window.isSecureContext || !navigator.bluetooth?.requestDevice || operationBusy || connectionBusy;
+        $("btnMidiConnect").disabled = connected() || midiDenied || !window.isSecureContext || !navigator.requestMIDIAccess || operationBusy || connectionBusy;
         $("btnSaveSlot").title = localPreview ? "Local import preview only; reconnect to discard" : connected()
           ? "Write and read back this mapping" : "Connect your pedal to apply changes";
       }
       function editorStatus() {
         $("draftStatus").textContent = localPreview ? "Local import · nothing sent" : drafts.has(slotKey())
-          ? "Local changes · not sent" : verified.has(slotKey()) ? "Read from pedal · persistence unverified" : "Local defaults · not read";
+          ? "Local changes · not sent" : verified.has(slotKey()) ? "Read from pedal" : "Local defaults · not read";
       }
       let returnFocus = null;
       const panels = ["connectionPanel", "activityPanel", "shortcutsPanel"];
@@ -497,8 +535,7 @@
       function openDialog(title, panel) {
         returnFocus = document.activeElement;
         if (panel === "connectionPanel") {
-          $("connectionFeedback").textContent = connected() ? $("connStatus").textContent.replace("WebBluetooth", "Bluetooth").replace("WebMIDI", "System MIDI") : "";
-          $("connectionFeedback").hidden = !connected();
+          renderConnection();
         }
         closeMenu();
         panels.forEach(id => { $(id).hidden = id !== panel; document.body.appendChild($(id)); });
@@ -507,8 +544,8 @@
         $("modalRoot").hidden = false; document.body.style.overflow = "hidden"; $("closeDialog").focus();
       }
       $("connectButton").addEventListener("click", () => {
-        openDialog("Connect your AirFoot", "connectionPanel");
-        if (!connected() && preferSystemMidi && window.isSecureContext) $("btnMidiConnect").click();
+        openDialog(connected() ? "Pedal connection" : "Connect your AirFoot", "connectionPanel");
+
       });
       $("activityButton").addEventListener("click", () => openDialog("Activity", "activityPanel"));
       $("shortcutsButton").addEventListener("click", () => openDialog("Footswitch shortcuts", "shortcutsPanel"));
@@ -527,7 +564,11 @@
           else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
         }
       });
-      $("btnDisconnect").addEventListener("click", () => { midiReconnect = null; transportLost(); closeDialog(); });
+      $("btnDisconnect").addEventListener("click", () => {
+        midiReconnect = null;
+        if (midiAccess) midiAccess.onstatechange = null;
+        transportLost(); closeDialog();
+      });
       new MutationObserver(() => {
         const on = $("connStatus").textContent.startsWith("Connected");
         $("connectButton").textContent = on ? "Pedal connected" : "Connect pedal";
@@ -545,13 +586,13 @@
       }
       function updateFieldLabels() {
         const type = Number($("actionType").value);
-        const labels = type === 5 ? ["Modifier mask (0–127)", "Key code", "Press value", "Release value"]
+        const labels = type === 5 ? ["Modifier mask (0–255)", "Key code", "Press value", "Release value"]
           : type === 6 ? ["Modifier / channel byte", "Media usage low byte", "Media usage high byte", "Release value"]
           : ["MIDI channel", type === 3 ? "Program number" : type === 4 ? "Note number" : "Controller number", type === 4 ? "Velocity" : "Press value", "Release value"];
         ["chanOrMod", "codeInput", "valOnInput", "valOffInput"].forEach((id, i) => {
           document.querySelector(`label[for="${id}"]`).textContent = labels[i];
           $(id).min = id === "chanOrMod" && isMidiAction(type) ? 1 : 0;
-          $(id).max = id === "chanOrMod" && isMidiAction(type) ? 16 : 127;
+          $(id).max = id === "chanOrMod" && isMidiAction(type) ? 16 : type >= 5 ? 255 : 127;
           $(id).closest(".field").hidden = type === 0;
         });
       }
@@ -568,9 +609,26 @@
           renderSwitches();
         });
       });
+      function renderConnection() {
+        const on = connected();
+        $("connectionIntro").textContent = on ? "Your pedal is connected wirelessly." : "Connect wirelessly to configure your pedal.";
+        $("btnDisconnect").hidden = !on;
+        $("btnMidiConnect").hidden = on;
+        $("btnBleConnect").hidden = on;
+        $("midiPorts").hidden = on || !midiAccess;
+        $("connectedDetails").hidden = !on;
+        $("connectedDetails").textContent = on ? "Disconnecting here stops configuration and monitoring. Your Mac’s AirFoot keyboard stays connected." : "";
+        $("connectionFeedback").hidden = !on && !midiDenied;
+        $("connectionFeedback").textContent = on ? `${$("connStatus").textContent}${webMidiIn ? ` · ${webMidiIn.name}` : ""}`
+          : midiDenied ? "MIDI permission denied. Open Chrome site settings, allow MIDI devices and SysEx, then reload this page. Permissions are separate for local files, localhost and HTTPS. No Bluetooth fallback was attempted." : "";
+        updateApply();
+      }
       function transportLost() {
+        const wasConnected = connected();
+        expressionMapping = null; expressionTelemetry = false; fullByteMappings = false; inputMask = 0;
+        document.querySelectorAll(".input-down").forEach(el => el.classList.remove("input-down"));
         verified.clear();
-        $("exprLabel").textContent = $("exprValueText").textContent ? "Disconnected · last signal" : "Awaiting signal";
+        $("exprLabel").textContent = $("exprValueText").textContent !== "—" ? "Disconnected · last value" : "Awaiting signal";
         requests.disconnect();
         if (bleMidiChar && bleNotification) bleMidiChar.removeEventListener?.("characteristicvaluechanged", bleNotification);
         bleMidiChar = null; bleNotification = null;
@@ -582,7 +640,11 @@
         webMidiOut = null; webMidiIn = null;
         document.getElementById("connStatus").textContent = "Disconnected";
         document.getElementById("connStatus").style.background = "#64748b";
-        status("Disconnected. Device state and persistence unverified; reconnect and read back.");
+        if (wasConnected) {
+          status("Disconnected. Local edits retained; reconnect and read back before applying.");
+          operatorEvent("Pedal disconnected · local edits retained");
+        }
+        renderConnection();
       }
       function beginConnection() {
         midiReconnect = null;
@@ -619,7 +681,7 @@
           parsed.sw === sw && parsed.gesture === gesture;
       }
       async function readSlot(bank, sw, gesture) {
-        return requests.request(AirFootCodec.encodeReadRequest(bank, sw, gesture), matching("READ_DUMP", bank, sw, gesture));
+        return requests.request(AirFootCodec.encodeReadRequest(bank, sw, gesture, fullByteMappings), matching("READ_DUMP", bank, sw, gesture));
       }
       function applySlot(slot) {
         const {type, chan_or_mod, code, val_on, val_off} = slot;
@@ -637,14 +699,37 @@
         const line = document.createElement("div");
         line.textContent = `[${new Date().toLocaleTimeString()}] ${prefix}: ${hex}`;
         sysexLog.prepend(line);
+        while (sysexLog.children.length > 200) sysexLog.lastChild.remove();
       }
 
       function logText(str) {
         const line = document.createElement("div");
         line.textContent = `[${new Date().toLocaleTimeString()}] ${str}`;
         sysexLog.prepend(line);
+        while (sysexLog.children.length > 200) sysexLog.lastChild.remove();
       }
 
+      function operatorEvent(text) {
+        const log = $("operatorLog");
+        if (!text || (!text.startsWith("Switch ") && log.firstChild?.dataset.message === text)) return;
+        const line = document.createElement("div"); line.dataset.message = text;
+        line.textContent = `${new Date().toLocaleTimeString()} · ${text}`;
+        log.prepend(line);
+        while (log.children.length > 80) log.lastChild.remove();
+      }
+      function showExpression(bank, channel, cc, value) {
+        if (localPreview) return;
+        expressionMapping = {bank, channel, cc};
+        $("exprLabel").textContent = `CC ${cc} · Ch ${channel + 1}`;
+        $("exprLabel").title = "Expression mapping reported by the pedal";
+        if (value !== undefined) {
+          $("exprValueText").textContent = value;
+          $("exprBarFill").style.width = `${value / 127 * 100}%`;
+        }
+      }
+      function requestDeviceState() {
+        transmitSysEx([0xf0,0x7d,0x07,0,0xf7]).catch(error => logText(`State query: ${error.message}`));
+      }
       function flashChordPill(pillId) {
         const id = pillId || (appState.activeBank > 0 ? "chordUpPill" : "chordDownPill");
         const pill = document.getElementById(id);
@@ -679,7 +764,7 @@
           card.type = "button";
           card.disabled = operationBusy;
           card.id = `swCard_${i}`;
-          card.className = "pedal" + (i === selectedSw ? " selected" : "");
+          card.className = "pedal" + (i === selectedSw ? " selected" : "") + (inputMask & (1 << i) ? " input-down" : "");
           card.setAttribute("aria-pressed", String(i === selectedSw));
           card.setAttribute("aria-label", `Switch ${i + 1}`);
           const single = drafts.get(slotKey(appState.activeBank, i, 0)) || bank.switches[i][0];
@@ -696,6 +781,7 @@
 
       function loadEditorFields() {
         document.getElementById("editorTitle").textContent = `Switch ${selectedSw + 1}`;
+        $("editorContext").textContent = `Bank ${appState.activeBank + 1} · Switch ${selectedSw + 1} · ${["Tap", "Double tap", "Hold"][selectedGesture]}`;
         const slot = drafts.get(slotKey()) || appState.banks[appState.activeBank].switches[selectedSw][selectedGesture];
         document.querySelectorAll("[data-gesture]").forEach(button => {
           const on = Number(button.dataset.gesture) === selectedGesture;
@@ -725,7 +811,7 @@
         return Number.isInteger(parsed.bank) && parsed.bank >= 0 && parsed.bank < 8 &&
           (parsed.sw === undefined || (parsed.sw >= 0 && parsed.sw < 5)) &&
           (parsed.gesture === undefined || (parsed.gesture >= 0 && parsed.gesture <= (parsed.kind === "ACTION_EVENT" ? 3 : 2))) &&
-          (parsed.kind !== "READ_DUMP" || AirFootCodec.validAction(parsed, true));
+          (parsed.kind !== "READ_DUMP" || AirFootCodec.validAction(parsed, parsed.cmd !== 0x0d));
       }
       function handleIncomingMidiPacket(bytes, transport = "ble") {
         if (!bytes || bytes.length === 0) return;
@@ -734,40 +820,56 @@
         if (channel) {
           const {command, code, value} = channel;
           const ch = channel.channel + 1;
-          if (command === 0xb0) {
-            document.getElementById("exprLabel").textContent = `CC ${code} · Ch ${ch} · mapping unverified`;
-            document.getElementById("exprValueText").textContent = value;
-            document.getElementById("exprBarFill").style.width = `${Math.round(value / 127 * 100)}%`;
+          if (command === 0xb0 && !expressionTelemetry && expressionMapping &&
+              expressionMapping.bank === appState.activeBank && expressionMapping.channel === channel.channel && expressionMapping.cc === code) {
+            showExpression(expressionMapping.bank, channel.channel, code, value);
           }
           logText(`RX MIDI: Ch ${ch}, status ${command.toString(16)}, code ${code}, value ${value ?? ""}`);
-          if (!localPreview) {
-            const bank = appState.banks[appState.activeBank];
-            for (let sw = 0; sw < 5; sw++) {
-              const action = bank.switches[sw][0];
-              if (action.chan_or_mod !== channel.channel || action.code !== code) continue;
-              if ((command === 0xb0 && [1,2].includes(action.type)) ||
-                  (command === 0xc0 && action.type === 3) ||
-                  ([0x80,0x90].includes(command) && action.type === 4)) flashCard(sw, "RX MIDI");
-            }
-          }
           return;
         }
 
         // 3. SysEx Frame Decoding
         // Strip BLE-MIDI headers and intermediate timestamps for uniform display and processing
         const cleanBytes = (transport === "ble" && bytes && bytes[0] !== 0xf0) ? AirFootCodec.unwrapBleMidiSysEx(bytes) : Array.from(bytes || []);
+        logHex("RX SysEx", cleanBytes.length > 0 ? cleanBytes : bytes);
         const parsed = AirFootCodec.parseSysExFrame(cleanBytes.length > 0 ? cleanBytes : bytes);
 
         if (parsed.valid) {
+          if (parsed.kind === "INPUT_STATE") {
+            inputMask = parsed.mask;
+            for (let sw = 0; sw < 5; sw++) {
+              const card = $(`swCard_${sw}`), down = Boolean(inputMask & (1 << sw));
+              card.classList.toggle("input-down", down);
+              const badge = $(`swLiveBadge_${sw}`);
+              if (down) { badge.textContent = "Pressed · deciding gesture"; badge.style.display = "inline-block"; }
+              else if (badge.textContent.startsWith("Pressed")) badge.textContent = "";
+            }
+            return;
+          }
           if (!AirFootCodecBounds(parsed)) return;
           if (requests.receive(parsed)) return;
           if (localPreview) return;
-          if (parsed.kind === "ACTION_EVENT") {
-            const gestNames = ["1x Tap", "2x Tap", "Hold"];
+          if (parsed.kind === "DEVICE_STATE" || parsed.kind === "EXPRESSION") {
+            if (parsed.bank !== appState.activeBank) {
+              expressionMapping = null; expressionTelemetry = false;
+            appState.activeBank = parsed.bank; $("bankSelect").value = parsed.bank;
+              $("exprValueText").textContent = "—"; $("exprBarFill").style.width = "0%";
+              renderSwitches(); loadEditorFields();
+            }
+            if (parsed.kind === "DEVICE_STATE") fullByteMappings = Boolean(parsed.capabilities & 1);
+            if (parsed.kind === "EXPRESSION") expressionTelemetry = true;
+            showExpression(parsed.bank, parsed.channel, parsed.cc, parsed.value);
+          } else if (parsed.kind === "ACTION_EVENT") {
+            if (parsed.bank !== appState.activeBank) return;
+            const gestNames = ["Tap recognized", "Double tap recognized", "Hold recognized"];
             const gestStr = gestNames[parsed.gesture] || "Tap";
             const actName = AirFootCodec.ACTION_NAMES[parsed.type] || `Act ${parsed.type}`;
             logText(`RX ACTION: SW${parsed.sw + 1} (${PIN_LABELS[parsed.sw]}) ${gestStr} ➔ ${actName} (Code: ${parsed.code})`);
-            flashCard(parsed.sw, `${gestStr} ➔ ${actName}`);
+            const known = verified.has(slotKey(parsed.bank, parsed.sw, parsed.gesture))
+              ? appState.banks[parsed.bank].switches[parsed.sw]?.[parsed.gesture] : null;
+            const displayCode = parsed.type >= 5 ? (known && (known.code & 127) === parsed.code ? known.code : null) : parsed.code;
+            operatorEvent(`Switch ${parsed.sw + 1} · ${gestStr} · ${actName}${parsed.type && displayCode !== null ? ` ${displayCode}` : ""}`);
+            flashCard(parsed.sw, `${gestStr}${parsed.type ? "" : " · unassigned"}`);
             if (parsed.sw === 1 && parsed.gesture === 2 && parsed.code === 14) {
               flashChordPill("chordTempoPill");
             } else if (parsed.sw === 2 && parsed.gesture === 3 && parsed.code === 15) {
@@ -780,6 +882,9 @@
             document.getElementById("bankSelect").value = parsed.bank;
             renderSwitches();
             loadEditorFields();
+            expressionMapping = null; expressionTelemetry = false;
+            requestDeviceState();
+            operatorEvent(`Bank ${parsed.bank + 1} selected`);
             flashChordPill(null);
           }
 
@@ -834,8 +939,8 @@
           val_off: parseInt(document.getElementById("valOffInput").value, 10)
         };
         await operation(async () => {
-          if (!AirFootCodec.validAction(updated, true)) throw new Error("Invalid mapping or value exceeds the current 7-bit SysEx format");
-          await requests.request(AirFootCodec.encodeWriteMapping(updated), matching("ACK", updated.bank, updated.sw, updated.gesture));
+          if (!AirFootCodec.validAction(updated, !fullByteMappings)) throw new Error("Invalid mapping or value exceeds the current 7-bit SysEx format");
+          await requests.request(AirFootCodec.encodeWriteMapping(updated, fullByteMappings), matching("ACK", updated.bank, updated.sw, updated.gesture));
           const actual = await readSlot(updated.bank, updated.sw, updated.gesture);
           if (!["type", "chan_or_mod", "code", "val_on", "val_off"].every(k => actual[k] === updated[k])) {
             throw new Error("Mapping readback mismatch; prior confirmed state retained, device state uncertain");
@@ -910,6 +1015,7 @@
           beginConnection();
           if (navigator.bluetooth.getAvailability && !await navigator.bluetooth.getAvailability())
             throw new Error("Bluetooth adapter unavailable. Turn on Bluetooth and retry.");
+          logText("Bluetooth requestDevice: AirFoot name filter; optional MIDI service");
           const device = await navigator.bluetooth.requestDevice({
             filters: [{ name: "AirFoot" }],
             optionalServices: [AirFootCodec.MIDI_SERVICE_UUID]
@@ -918,6 +1024,7 @@
           device.addEventListener("gattserverdisconnected", () => {
             if (bleDevice === device) transportLost();
           });
+          logText("Bluetooth device selected; connecting GATT");
           const server = await device.gatt.connect();
           const midiSvc = await server.getPrimaryService(AirFootCodec.MIDI_SERVICE_UUID);
           bleMidiChar = await midiSvc.getCharacteristic(AirFootCodec.MIDI_CHAR_UUID);
@@ -933,8 +1040,9 @@
           closeDialog();
           status("Connected. Active bank unverified; select a bank to confirm. Read mappings to confirm device RAM; persistence unverified.");
 
-          document.getElementById("connStatus").textContent = "Connected (WebBluetooth)";
+          document.getElementById("connStatus").textContent = "Connected wirelessly via Bluetooth";
           document.getElementById("connStatus").style.background = "#16a34a";
+          requestDeviceState(); operatorEvent("Pedal connected via Bluetooth"); renderConnection();
         } catch (err) {
           transportLost();
           console.warn("WebBluetooth error:", err);
@@ -943,11 +1051,18 @@
           line.textContent = connectionError("Bluetooth", err);
           status(line.textContent);
           sysexLog.prepend(line);
+        while (sysexLog.children.length > 200) sysexLog.lastChild.remove();
         } finally { connectionBusy = false; updateApply(); }
       });
 
       function connectionError(method, error) {
         logText(`${method}: ${error.name || "Error"}: ${error.message || error}`);
+        if (method === "MIDI" && ["NotAllowedError", "SecurityError"].includes(error.name)) {
+          midiDenied = true; updateApply();
+          return "MIDI permission denied. Open Chrome site settings, allow MIDI devices and SysEx, then reload this page. No Bluetooth fallback was attempted.";
+        }
+        if (method === "Bluetooth" && /unsupported|not supported|gatt/i.test(error.message || ""))
+          return "Direct Bluetooth could not open AirFoot’s MIDI service. On Mac, use Wireless on Mac with AirFoot connected in Audio MIDI Setup. Keep the native keyboard connected.";
         if (["NotAllowedError", "SecurityError"].includes(error.name))
           return method === "MIDI" ? "MIDI permission denied. Allow MIDI and SysEx access in site settings, then retry."
             : "Bluetooth permission denied. Allow Bluetooth access in site settings, then retry.";
@@ -964,7 +1079,8 @@
           }
           select.value = previous;
         }
-        document.getElementById("midiPorts").hidden = false;
+        document.getElementById("midiPorts").hidden = connected();
+        logText(`MIDI discovery: ${midiAccess.inputs.size} input(s), ${midiAccess.outputs.size} output(s)`);
       }
       async function useMidi(input, output) {
         if (!input || !output || input.state === "disconnected" || output.state === "disconnected")
@@ -982,10 +1098,11 @@
         midiReconnect = { inputId: input.id, outputId: output.id, inputName: input.name, outputName: output.name };
         $("exprLabel").textContent = "Awaiting signal";
         input.onmidimessage = msg => { if (webMidiIn === input) handleIncomingMidiPacket(msg.data, "midi"); };
-        document.getElementById("connStatus").textContent = "Connected (WebMIDI)";
+        document.getElementById("connStatus").textContent = preferSystemMidi ? "Connected wirelessly via Mac MIDI" : "Connected via system MIDI";
         document.getElementById("connStatus").style.background = "#16a34a";
         closeDialog();
-        status("Connected. Select a bank and read mappings to verify device RAM; persistence unverified.");
+        status("Connected. Read mappings to verify device RAM; persistence unverified.");
+        requestDeviceState(); renderConnection(); operatorEvent("Pedal connected via system MIDI");
       }
       document.getElementById("btnUseMidi").addEventListener("click", async () => {
         if (connectionBusy || operationBusy || !midiAccess) return;
@@ -1003,6 +1120,11 @@
         updateApply();
         try {
           beginConnection();
+          if (midiDenied) throw new DOMException("Previously denied", "NotAllowedError");
+          const permission = await navigator.permissions?.query({name:"midi", sysex:true}).catch(() => null);
+          logText(`MIDI permission before request: ${permission?.state || "unknown"}`);
+          if (permission?.state === "denied") throw new DOMException("Previously denied in site settings", "NotAllowedError");
+          logText("MIDI requestMIDIAccess: SysEx required");
           const access = await navigator.requestMIDIAccess({ sysex: true });
           if (access.sysexEnabled === false) throw new DOMException("SysEx required", "NotAllowedError");
           midiAccess = access;
@@ -1051,6 +1173,7 @@
       $("bleHelp").textContent = !secure ? "Requires a secure page" : bluetoothAvailable ? "Connect directly to your pedal" : "Unavailable in this browser";
       $("midiHelp").textContent = !secure ? "Requires a secure page" : midiAvailable ? "Use your system’s MIDI connection" : "Unavailable in this browser";
       if (preferSystemMidi && secure) {
+        $("btnMidiConnect").classList.add("primary");
         $("btnMidiConnect").querySelector(".transport-title").textContent = "Wireless on Mac";
         $("midiHelp").textContent = "Uses Bluetooth MIDI and keeps your keyboard connected";
         if (bluetoothAvailable) $("bleHelp").textContent = "For advertising pedals; use Wireless on Mac when already paired";
@@ -1084,6 +1207,10 @@
 
       renderSwitches();
       loadEditorFields();
+      renderConnection();
+      navigator.permissions?.query({name:"midi", sysex:true}).then(permission => {
+        if (permission.state === "denied") { midiDenied = true; renderConnection(); }
+      }).catch(() => {});
     })();
   </script>
 </body>
