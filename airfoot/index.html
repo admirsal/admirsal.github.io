@@ -427,6 +427,9 @@
       let bleDevice = null;
       let bleNotification = null;
       let midiAccess = null;
+      let midiReconnect = null;
+      let midiReconnecting = false;
+      const preferSystemMidi = /Mac/.test(navigator.platform || "") && Boolean(navigator.requestMIDIAccess);
       let connectionBusy = false;
       let localPreview = false;
       let confirmedBeforePreview = null;
@@ -503,7 +506,10 @@
         $("dialogContent").appendChild($(panel));
         $("modalRoot").hidden = false; document.body.style.overflow = "hidden"; $("closeDialog").focus();
       }
-      $("connectButton").addEventListener("click", () => openDialog("Connect your AirFoot", "connectionPanel"));
+      $("connectButton").addEventListener("click", () => {
+        if (!connected() && preferSystemMidi && window.isSecureContext) $("btnMidiConnect").click();
+        else openDialog("Connect your AirFoot", "connectionPanel");
+      });
       $("activityButton").addEventListener("click", () => openDialog("Activity", "activityPanel"));
       $("shortcutsButton").addEventListener("click", () => openDialog("Footswitch shortcuts", "shortcutsPanel"));
       $("closeDialog").addEventListener("click", closeDialog);
@@ -521,7 +527,7 @@
           else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
         }
       });
-      $("btnDisconnect").addEventListener("click", () => { transportLost(); closeDialog(); });
+      $("btnDisconnect").addEventListener("click", () => { midiReconnect = null; transportLost(); closeDialog(); });
       new MutationObserver(() => {
         const on = $("connStatus").textContent.startsWith("Connected");
         $("connectButton").textContent = on ? "Pedal connected" : "Connect pedal";
@@ -579,6 +585,7 @@
         status("Disconnected. Device state and persistence unverified; reconnect and read back.");
       }
       function beginConnection() {
+        midiReconnect = null;
         transportLost();
         if (midiAccess) midiAccess.onstatechange = null;
         midiAccess = null;
@@ -904,7 +911,7 @@
           if (navigator.bluetooth.getAvailability && !await navigator.bluetooth.getAvailability())
             throw new Error("Bluetooth adapter unavailable. Turn on Bluetooth and retry.");
           const device = await navigator.bluetooth.requestDevice({
-            filters: [{ name: "AirFoot" }],
+            filters: [{ name: "AirFoot" }, { services: [AirFootCodec.MIDI_SERVICE_UUID] }],
             optionalServices: [AirFootCodec.MIDI_SERVICE_UUID]
           });
           bleDevice = device;
@@ -972,6 +979,7 @@
         }
         requests = AirFootCodec.createRequests(transmitSysEx);
         webMidiIn = input; webMidiOut = output;
+        midiReconnect = { inputId: input.id, outputId: output.id, inputName: input.name, outputName: output.name };
         input.onmidimessage = msg => { if (webMidiIn === input) handleIncomingMidiPacket(msg.data, "midi"); };
         document.getElementById("connStatus").textContent = "Connected (WebMIDI)";
         document.getElementById("connStatus").style.background = "#16a34a";
@@ -997,14 +1005,29 @@
           const access = await navigator.requestMIDIAccess({ sysex: true });
           if (access.sysexEnabled === false) throw new DOMException("SysEx required", "NotAllowedError");
           midiAccess = access;
-          access.onstatechange = () => {
+          access.onstatechange = async () => {
             if (midiAccess !== access) return;
             if (webMidiIn && (webMidiIn.state === "disconnected" || webMidiOut.state === "disconnected" ||
                 !Array.from(access.inputs.values()).includes(webMidiIn) || !Array.from(access.outputs.values()).includes(webMidiOut))) {
               transportLost();
-              status("MIDI disconnected. Reconnect in the system MIDI service, then select both ports below.");
+              status("Waiting for AirFoot to reconnect wirelessly…");
             }
             refreshMidiPorts();
+            if (midiReconnect && !webMidiIn && !midiReconnecting && !connectionBusy && !operationBusy) {
+              const match = (ports, id, name) => {
+                const candidates = Array.from(ports.values()).filter(port => port.state !== "disconnected" &&
+                  (port.id === id || (port.name === name && AirFootCodec.isAirFootPort(port))));
+                return candidates.length === 1 ? candidates[0] : null;
+              };
+              const input = match(access.inputs, midiReconnect.inputId, midiReconnect.inputName);
+              const output = match(access.outputs, midiReconnect.outputId, midiReconnect.outputName);
+              if (input && output) {
+                midiReconnecting = true;
+                try { await useMidi(input, output); }
+                catch (error) { status(connectionError("MIDI", error)); }
+                finally { midiReconnecting = false; updateApply(); }
+              }
+            }
           };
           refreshMidiPorts();
           const inputs = Array.from(access.inputs.values()).filter(AirFootCodec.isAirFootPort);
@@ -1021,6 +1044,12 @@
       const midiAvailable = Boolean(navigator.requestMIDIAccess);
       $("bleHelp").textContent = !secure ? "Requires a secure page" : bluetoothAvailable ? "Connect directly to your pedal" : "Unavailable in this browser";
       $("midiHelp").textContent = !secure ? "Requires a secure page" : midiAvailable ? "Use your system’s MIDI connection" : "Unavailable in this browser";
+      if (preferSystemMidi && secure) {
+        $("btnMidiConnect").querySelector(".transport-title").textContent = "Wireless on Mac";
+        $("midiHelp").textContent = "Uses Bluetooth MIDI and keeps your keyboard connected";
+        if (bluetoothAvailable) $("bleHelp").textContent = "For advertising pedals; use Wireless on Mac when already paired";
+        $("btnMidiConnect").parentNode.insertBefore($("btnMidiConnect"), $("btnBleConnect"));
+      }
       $("compatInfo").textContent = !secure ? "Open over HTTPS or localhost to connect your pedal."
         : !bluetoothAvailable && !midiAvailable ? "Use a browser with Bluetooth or MIDI access to connect. You can still edit presets here." : "";
       $("compatInfo").hidden = !$("compatInfo").textContent;

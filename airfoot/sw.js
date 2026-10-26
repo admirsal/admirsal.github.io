@@ -1,5 +1,5 @@
 /* Bump VERSION whenever an application shell asset changes. */
-const VERSION = 'v3';
+const VERSION = 'v4';
 const PREFIX = `airfoot:${self.registration.scope}:`;
 const CACHE = PREFIX + VERSION;
 const SHELL = ['index.html', 'manifest.json', 'icon.svg'].map(path => new URL(path, self.registration.scope).href);
