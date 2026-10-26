@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b0f19"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="none" stroke="url(#accent)" stroke-width="8" opacity="0.3"/>
+  <!-- Footswitch Stomp Icon with BLE Waves -->
+  <circle cx="256" cy="280" r="110" fill="#131d31" stroke="url(#accent)" stroke-width="14"/>
+  <circle cx="256" cy="280" r="70" fill="url(#accent)"/>
+  <circle cx="256" cy="280" r="40" fill="#0f172a"/>
+  <!-- Bluetooth Rune Antennas -->
+  <path d="M256 100 L256 220 M256 120 L290 150 L256 180 M256 140 L222 170" fill="none" stroke="#38bdf8" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- LED Indicator Dot -->
+  <circle cx="256" cy="430" r="14" fill="#38bdf8"/>
+</svg>
