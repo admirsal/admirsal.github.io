@@ -507,8 +507,8 @@
         $("modalRoot").hidden = false; document.body.style.overflow = "hidden"; $("closeDialog").focus();
       }
       $("connectButton").addEventListener("click", () => {
+        openDialog("Connect your AirFoot", "connectionPanel");
         if (!connected() && preferSystemMidi && window.isSecureContext) $("btnMidiConnect").click();
-        else openDialog("Connect your AirFoot", "connectionPanel");
       });
       $("activityButton").addEventListener("click", () => openDialog("Activity", "activityPanel"));
       $("shortcutsButton").addEventListener("click", () => openDialog("Footswitch shortcuts", "shortcutsPanel"));
@@ -911,7 +911,7 @@
           if (navigator.bluetooth.getAvailability && !await navigator.bluetooth.getAvailability())
             throw new Error("Bluetooth adapter unavailable. Turn on Bluetooth and retry.");
           const device = await navigator.bluetooth.requestDevice({
-            filters: [{ name: "AirFoot" }, { services: [AirFootCodec.MIDI_SERVICE_UUID] }],
+            filters: [{ name: "AirFoot" }],
             optionalServices: [AirFootCodec.MIDI_SERVICE_UUID]
           });
           bleDevice = device;
@@ -980,6 +980,7 @@
         requests = AirFootCodec.createRequests(transmitSysEx);
         webMidiIn = input; webMidiOut = output;
         midiReconnect = { inputId: input.id, outputId: output.id, inputName: input.name, outputName: output.name };
+        $("exprLabel").textContent = "Awaiting signal";
         input.onmidimessage = msg => { if (webMidiIn === input) handleIncomingMidiPacket(msg.data, "midi"); };
         document.getElementById("connStatus").textContent = "Connected (WebMIDI)";
         document.getElementById("connStatus").style.background = "#16a34a";
@@ -1013,6 +1014,11 @@
               status("Waiting for AirFoot to reconnect wirelessly…");
             }
             refreshMidiPorts();
+            if (midiReconnect && !webMidiIn && (connectionBusy || operationBusy)) {
+              setTimeout(() => {
+                if (midiAccess === access && midiReconnect) access.onstatechange?.();
+              }, 250);
+            }
             if (midiReconnect && !webMidiIn && !midiReconnecting && !connectionBusy && !operationBusy) {
               const match = (ports, id, name) => {
                 const candidates = Array.from(ports.values()).filter(port => port.state !== "disconnected" &&
