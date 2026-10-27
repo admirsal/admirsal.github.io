@@ -22,7 +22,7 @@
 .pedal-category{color:#777c88}.expression-value{color:#797d87}.eyebrow{color:#797c85}.draft-status{color:#747986}.footer{color:#a0a3aa}.close{width:44px;height:44px}.apply{min-height:44px}
 @media(max-width:540px){.topbar{height:72px}.dots-btn{width:44px;height:44px}.connect-btn{height:44px;min-height:44px}.nav-btn{width:44px;height:44px}.segment{height:44px;font-size:13px}.control{font-size:16px}.field label{font-size:13px}.section-name{font-size:14px}}
 
-[hidden]{display:none!important}.apply:not(.canapply){color:#687080}.control:disabled,.pedal:disabled,.segment:disabled{opacity:.6}.field:has(#actionType){margin-bottom:19px}.editor-bottom{align-items:flex-start}.draft-status{max-width:185px}.expression-top{gap:10px;flex-wrap:wrap}.expression-value{margin-left:auto;font-size:11px}.pedal.active-tap{background:#dcecff;box-shadow:0 0 0 4px #8bbcff}.sw-live-badge{position:absolute;top:35px;font-size:10px;color:#1677f8;max-width:100%;padding:0 5px}.dialog{max-height:85vh;overflow:auto}.dialog p{font-size:13px;line-height:1.5;color:#747986}.dialog select{max-width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:#f9fafb}.dialog button:not(.close){min-height:44px}#midiPorts label{display:grid;gap:6px;margin:12px 0}#sysexLog{height:220px;overflow:auto;overflow-wrap:anywhere;background:#f5f5f7;border-radius:12px;padding:12px;font:11px/1.6 ui-monospace,monospace}.chord-flash{background:#eaf3ff}.connection-state #connStatus{background:none!important}.num-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 14px}.field{min-width:0}.control{min-width:0}.apply{white-space:normal;flex-shrink:0}.menu{max-width:calc(100vw - 38px)}@media(max-width:360px){.pedals{margin-left:-16px;margin-right:-16px;padding-left:16px;padding-right:16px}.top-inner{padding:0 12px}.top-actions{gap:6px}.brand{gap:6px}.brand-wordmark{font-size:17px}.content{padding-left:16px;padding-right:16px}.bank-header{gap:8px}.bank-nav{gap:3px}.bank-title{font-size:34px}.editor{padding:18px 15px}.editor-bottom{gap:8px}.apply{padding:0 12px}}
+[hidden]{display:none!important}.apply:not(.canapply){color:#687080}.control:disabled,.pedal:disabled,.segment:disabled{opacity:.6}.field:has(#actionType){margin-bottom:19px}.editor-bottom{align-items:flex-start}.draft-status{max-width:185px}.expression-top{gap:10px;flex-wrap:wrap}.expression-value{margin-left:auto;font-size:11px}.pedal.active-tap{background:#dcecff;box-shadow:0 0 0 4px #8bbcff}.dialog{max-height:85vh;overflow:auto}.dialog p{font-size:13px;line-height:1.5;color:#747986}.dialog select{max-width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:#f9fafb}.dialog button:not(.close){min-height:44px}#midiPorts label{display:grid;gap:6px;margin:12px 0}#sysexLog{height:220px;overflow:auto;overflow-wrap:anywhere;background:#f5f5f7;border-radius:12px;padding:12px;font:11px/1.6 ui-monospace,monospace}.chord-flash{background:#eaf3ff}.connection-state #connStatus{background:none!important}.num-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 14px}.field{min-width:0}.control{min-width:0}.apply{white-space:normal;flex-shrink:0}.menu{max-width:calc(100vw - 38px)}@media(max-width:360px){.pedals{margin-left:-16px;margin-right:-16px;padding-left:16px;padding-right:16px}.top-inner{padding:0 12px}.top-actions{gap:6px}.brand{gap:6px}.brand-wordmark{font-size:17px}.content{padding-left:16px;padding-right:16px}.bank-header{gap:8px}.bank-nav{gap:3px}.bank-title{font-size:34px}.editor{padding:18px 15px}.editor-bottom{gap:8px}.apply{padding:0 12px}}
 
 /* Shared secondary-action rhythm; unavailable actions keep their place. */
 .menu button{min-height:44px;gap:11px;line-height:1.35}.menu button svg{flex:0 0 18px;stroke-linecap:round;stroke-linejoin:round}
@@ -740,17 +740,14 @@
         }
       }
 
-      function flashCard(swIdx, labelText) {
+      const cardFlashTimers = [];
+      function flashCard(swIdx) {
         if (swIdx < 0 || swIdx >= 5) return;
         const card = document.getElementById(`swCard_${swIdx}`);
         if (!card) return;
         card.classList.add("active-tap");
-        const badge = document.getElementById(`swLiveBadge_${swIdx}`);
-        if (badge) {
-          badge.textContent = labelText || "ACTIVE";
-          badge.style.display = "inline-block";
-        }
-        setTimeout(() => {
+        clearTimeout(cardFlashTimers[swIdx]);
+        cardFlashTimers[swIdx] = setTimeout(() => {
           card.classList.remove("active-tap");
         }, 450);
       }
@@ -770,7 +767,7 @@
           card.setAttribute("aria-label", `Switch ${i + 1}`);
           const single = drafts.get(slotKey(appState.activeBank, i, 0)) || bank.switches[i][0];
           const names = ["Unassigned", `CC ${single.code}`, single.code === 64 ? "Sustain" : `CC ${single.code}`, `Program ${single.code}`, `Note ${single.code}`, single.code === 79 ? "Next" : single.code === 80 ? "Previous" : `Key ${single.code}`, single.code === 205 && single.val_on === 0 ? "Play / Pause" : "Media"];
-          card.innerHTML = `<span class="pedal-n">${String(i+1).padStart(2, "0")}</span><span class="pedal-knob" aria-hidden="true"><span class="knob-center"></span></span><span class="pedal-name">${names[single.type] || "Unassigned"}</span><span class="pedal-category">${["No action", "MIDI control", "MIDI control", "MIDI program", "MIDI note", "Keyboard", "Media"][single.type] || "No action"}</span><span id="swLiveBadge_${i}" class="sw-live-badge"></span>`;
+          card.innerHTML = `<span class="pedal-n">${String(i+1).padStart(2, "0")}</span><span class="pedal-knob" aria-hidden="true"><span class="knob-center"></span></span><span class="pedal-name">${names[single.type] || "Unassigned"}</span><span class="pedal-category">${["No action", "MIDI control", "MIDI control", "MIDI program", "MIDI note", "Keyboard", "Media"][single.type] || "No action"}</span>`;
           card.addEventListener("click", () => {
             selectedSw = i;
             loadEditorFields();
@@ -841,9 +838,6 @@
             for (let sw = 0; sw < 5; sw++) {
               const card = $(`swCard_${sw}`), down = Boolean(inputMask & (1 << sw));
               card.classList.toggle("input-down", down);
-              const badge = $(`swLiveBadge_${sw}`);
-              if (down) { badge.textContent = "Pressed · deciding gesture"; badge.style.display = "inline-block"; }
-              else if (badge.textContent.startsWith("Pressed")) badge.textContent = "";
             }
             return;
           }
@@ -868,7 +862,7 @@
               const first = tempoChord ? 1 : 2;
               const name = tempoChord ? "Tap tempo" : "Looper / mute";
               operatorEvent(`Switches ${first + 1} + ${first + 2} · Chord recognized · ${name}`);
-              flashCard(first, "Chord recognized"); flashCard(first + 1, "Chord recognized");
+              flashCard(first); flashCard(first + 1);
               flashChordPill(tempoChord ? "chordTempoPill" : "chordLooperPill");
               return;
             }
@@ -880,7 +874,7 @@
               ? appState.banks[parsed.bank].switches[parsed.sw]?.[parsed.gesture] : null;
             const displayCode = parsed.type >= 5 ? (known && (known.code & 127) === parsed.code ? known.code : null) : parsed.code;
             operatorEvent(`Switch ${parsed.sw + 1} · ${gestStr} · ${actName}${parsed.type && displayCode !== null ? ` ${displayCode}` : ""}`);
-            flashCard(parsed.sw, `${gestStr}${parsed.type ? "" : " · unassigned"}`);
+            flashCard(parsed.sw);
           } else if (parsed.kind === "SELECT_BANK") {
             const previousBank = appState.activeBank;
             const logPayload = (parsed.frame && parsed.frame.length > 0) ? parsed.frame : cleanBytes;
