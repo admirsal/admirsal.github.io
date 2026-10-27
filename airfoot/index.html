@@ -29,7 +29,10 @@
 .menu button:disabled,.dialog button:disabled{color:#a0a3ad;cursor:not-allowed}.menu button:disabled svg{color:inherit}.menu button:disabled:hover{background:none}
 .transport-title,.transport-help{display:block}.transport-text{min-width:0}.transport:disabled{background:#f7f8fa;border-color:#eceef2}.transport:disabled .transport-icon{background:#eceef2;color:#a0a3ad}.transport:disabled .transport-help{color:#a0a3ad}.transport:disabled:hover{background:#f7f8fa;border-color:#eceef2}
 #connectionFeedback,#compatInfo{margin:14px 0 0}#btnDisconnect:disabled{color:#a0a3ad}#btnUseMidi,#btnReload{border:1px solid var(--line);background:#f9fafb;color:#454651;border-radius:11px;padding:10px 14px}
-.transport.primary{border-color:#8bbcff;background:#f3f8ff}.disconnect-button{border:1px solid #d3d6df;border-radius:11px;background:#fff;color:#393c45;padding:10px 16px;font-weight:650;width:100%;margin-top:16px}.pedal.input-down .pedal-knob{transform:translateY(3px);box-shadow:0 0 0 7px #eaf3ff}.expression-reading{display:flex;align-items:baseline;gap:4px}.expression-reading strong{font-size:22px;color:#252732}.expression-range{font-size:11px;color:#797d87}#operatorLog{max-height:260px;overflow:auto;font-size:13px;line-height:1.6}#operatorLog div{padding:6px 0;border-bottom:1px solid #efeff2}details{margin-top:18px}summary{cursor:pointer;font-size:12px;color:#747986}.editor-caption{display:block;margin:4px 0 14px}#connectionPanel .transport-title,#connectionPanel .transport-help{display:block}.connection-state{max-width:290px}.connection-state #connStatus{line-height:1.3}
+.transport.primary{border-color:#8bbcff;background:#f3f8ff}.disconnect-button{border:1px solid #d3d6df;border-radius:11px;background:#fff;color:#393c45;padding:10px 16px;font-weight:650;width:100%;margin-top:16px}.expression-reading{display:flex;align-items:baseline;gap:4px}.expression-reading strong{font-size:22px;color:#252732}.expression-range{font-size:11px;color:#797d87}#operatorLog{max-height:260px;overflow:auto;font-size:13px;line-height:1.6}#operatorLog div{padding:6px 0;border-bottom:1px solid #efeff2}details{margin-top:18px}summary{cursor:pointer;font-size:12px;color:#747986}.editor-caption{display:block;margin:4px 0 14px}#connectionPanel .transport-title,#connectionPanel .transport-help{display:block}.connection-state{max-width:290px}.connection-state #connStatus{line-height:1.3}
+/* Press and activity are distinct from the persistent selection outline. */
+.pedal.input-down .pedal-knob,.pedal:active .pedal-knob{transform:translateY(3px);border-color:var(--blue);box-shadow:0 0 0 7px #b7d8ff;transition:none}
+.pedal.input-down .knob-center,.pedal.active-tap .knob-center,.pedal:active .knob-center{background:var(--blue);border-color:var(--blue);box-shadow:inset 0 2px 4px rgba(0,0,0,.12)}
 </style></head><body>
 <div class="app">
 <header class="topbar"><div class="top-inner">
@@ -772,6 +775,7 @@
             selectedSw = i;
             loadEditorFields();
             renderSwitches();
+            flashCard(i);
           });
           switchGrid.appendChild(card);
         }
