@@ -1,10 +1,12 @@
 /* Bump VERSION whenever an application shell asset changes. */
-const VERSION = 'v8';
+const VERSION = 'v9';
 const PREFIX = `airfoot:${self.registration.scope}:`;
 const CACHE = PREFIX + VERSION;
 const SHELL = ['index.html', 'manifest.json', 'icon.svg'].map(path => new URL(path, self.registration.scope).href);
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)));
+  /* A new shell must not reuse fresh-but-outdated HTTP cache entries. */
+  const freshShell = SHELL.map(url => new Request(url, {cache: 'reload'}));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(freshShell)));
 });
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
