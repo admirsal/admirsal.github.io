@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f5f5f7" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="airfoot-version" content="AF08-2">
+  <meta name="airfoot-version" content="AF08-3">
   <title>AirFoot — WebBluetooth & WebMIDI Pedal Configurator</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/svg+xml" href="icon.svg" />
@@ -882,6 +882,7 @@
             operatorEvent(`Switch ${parsed.sw + 1} · ${gestStr} · ${actName}${parsed.type && displayCode !== null ? ` ${displayCode}` : ""}`);
             flashCard(parsed.sw, `${gestStr}${parsed.type ? "" : " · unassigned"}`);
           } else if (parsed.kind === "SELECT_BANK") {
+            const previousBank = appState.activeBank;
             const logPayload = (parsed.frame && parsed.frame.length > 0) ? parsed.frame : cleanBytes;
             logHex(`RX ${parsed.kind}`, logPayload);
             appState.activeBank = parsed.bank;
@@ -891,7 +892,10 @@
             expressionMapping = null; expressionTelemetry = false;
             requestDeviceState();
             operatorEvent(`Bank ${parsed.bank + 1} selected`);
-            flashChordPill(null);
+            if (inputMask === 0x03) flashChordPill("chordDownPill");
+            else if (inputMask === 0x18) flashChordPill("chordUpPill");
+            else if (parsed.bank === (previousBank + 7) % 8) flashChordPill("chordDownPill");
+            else if (parsed.bank === (previousBank + 1) % 8) flashChordPill("chordUpPill");
           }
 
         }
