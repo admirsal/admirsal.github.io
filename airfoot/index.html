@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f5f5f7" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="airfoot-version" content="AF08-1">
+  <meta name="airfoot-version" content="AF08-2">
   <title>AirFoot — WebBluetooth & WebMIDI Pedal Configurator</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/svg+xml" href="icon.svg" />
@@ -196,11 +196,12 @@
         let inSysex = false;
         for (let i = 0; i < packetBytes.length; i++) {
           const b = packetBytes[i];
-          if (b === 0xf0) {
+          if (b === 0xf0 && !inSysex) {
             inSysex = true;
             clean.length = 0;
             clean.push(0xf0);
           } else if (inSysex) {
+            // An F0 timestamp inside SysEx must not restart the frame.
             if (b === 0xf7) {
               clean.push(0xf7);
               return clean;
@@ -711,7 +712,7 @@
 
       function operatorEvent(text) {
         const log = $("operatorLog");
-        if (!text || (!text.startsWith("Switch ") && log.firstChild?.dataset.message === text)) return;
+        if (!text || (!/^Switch(?: |es )/.test(text) && log.firstChild?.dataset.message === text)) return;
         const line = document.createElement("div"); line.dataset.message = text;
         line.textContent = `${new Date().toLocaleTimeString()} · ${text}`;
         log.prepend(line);
@@ -852,7 +853,7 @@
           if (parsed.kind === "DEVICE_STATE" || parsed.kind === "EXPRESSION") {
             if (parsed.bank !== appState.activeBank) {
               expressionMapping = null; expressionTelemetry = false;
-            appState.activeBank = parsed.bank; $("bankSelect").value = parsed.bank;
+              appState.activeBank = parsed.bank; $("bankSelect").value = parsed.bank;
               $("exprValueText").textContent = "—"; $("exprBarFill").style.width = "0%";
               renderSwitches(); loadEditorFields();
             }
@@ -861,6 +862,16 @@
             showExpression(parsed.bank, parsed.channel, parsed.cc, parsed.value);
           } else if (parsed.kind === "ACTION_EVENT") {
             if (parsed.bank !== appState.activeBank) return;
+            const tempoChord = inputMask === 0x06 && parsed.sw === 1 && parsed.gesture === 2 && parsed.type === 2 && parsed.code === 14;
+            const looperChord = inputMask === 0x0c && parsed.sw === 2 && parsed.gesture === 3 && parsed.type === 2 && parsed.code === 15;
+            if (tempoChord || looperChord) {
+              const first = tempoChord ? 1 : 2;
+              const name = tempoChord ? "Tap tempo" : "Looper / mute";
+              operatorEvent(`Switches ${first + 1} + ${first + 2} · Chord recognized · ${name}`);
+              flashCard(first, "Chord recognized"); flashCard(first + 1, "Chord recognized");
+              flashChordPill(tempoChord ? "chordTempoPill" : "chordLooperPill");
+              return;
+            }
             const gestNames = ["Tap recognized", "Double tap recognized", "Hold recognized"];
             const gestStr = gestNames[parsed.gesture] || "Tap";
             const actName = AirFootCodec.ACTION_NAMES[parsed.type] || `Act ${parsed.type}`;
@@ -870,11 +881,6 @@
             const displayCode = parsed.type >= 5 ? (known && (known.code & 127) === parsed.code ? known.code : null) : parsed.code;
             operatorEvent(`Switch ${parsed.sw + 1} · ${gestStr} · ${actName}${parsed.type && displayCode !== null ? ` ${displayCode}` : ""}`);
             flashCard(parsed.sw, `${gestStr}${parsed.type ? "" : " · unassigned"}`);
-            if (parsed.sw === 1 && parsed.gesture === 2 && parsed.code === 14) {
-              flashChordPill("chordTempoPill");
-            } else if (parsed.sw === 2 && parsed.gesture === 3 && parsed.code === 15) {
-              flashChordPill("chordLooperPill");
-            }
           } else if (parsed.kind === "SELECT_BANK") {
             const logPayload = (parsed.frame && parsed.frame.length > 0) ? parsed.frame : cleanBytes;
             logHex(`RX ${parsed.kind}`, logPayload);
