@@ -695,6 +695,38 @@
         renderSwitches(); loadEditorFields();
       }
 
+      /* Device state, not factory defaults, owns the displayed bank mappings.
+       * Gather all replies before updating the UI; preserve any unsent drafts. */
+      async function readBankMappings(bank) {
+        const slots = [];
+        for (let sw = 0; sw < 5; sw++) {
+          for (let gesture = 0; gesture < 3; gesture++)
+            slots.push(await readSlot(bank, sw, gesture));
+        }
+        for (const slot of slots) {
+          const {type, chan_or_mod, code, val_on, val_off} = slot;
+          appState.banks[bank].switches[slot.sw][slot.gesture] =
+            {type, chan_or_mod, code, val_on, val_off};
+          verified.add(slotKey(bank, slot.sw, slot.gesture));
+        }
+        renderSwitches(); loadEditorFields();
+      }
+
+      async function synchronizeConnectedBank() {
+        if (!connected() || connectionBusy || operationBusy || localPreview) return;
+        await operation(async () => {
+          const state = await requests.request([0xf0, 0x7d, 0x07, 0, 0xf7],
+            parsed => parsed.valid && parsed.kind === "DEVICE_STATE");
+          fullByteMappings = Boolean(state.capabilities & 1);
+          appState.activeBank = state.bank;
+          $("bankSelect").value = state.bank;
+          expressionMapping = {bank: state.bank, channel: state.channel, cc: state.cc};
+          expressionTelemetry = false;
+          await readBankMappings(state.bank);
+          status("Bank mappings read from device RAM; persistence unverified.");
+        });
+      }
+
       const switchGrid = document.getElementById("switchGrid");
       const sysexLog = document.getElementById("sysexLog");
 
@@ -911,8 +943,8 @@
           await requests.request(AirFootCodec.encodeSelectBank(newBank), matching("ACK", newBank));
           appState.activeBank = newBank;
           document.getElementById("bankSelect").value = newBank;
-          renderSwitches(); loadEditorFields();
-          status("Bank accepted in device RAM. Persistence unverified (deferred NVS).");
+          await readBankMappings(newBank);
+          status("Bank selected and mappings read from device RAM. Persistence unverified (deferred NVS).");
         });
       }
 
@@ -969,10 +1001,7 @@
       document.getElementById("btnSyncBank").addEventListener("click", async () => {
         closeMenu();
         await operation(async () => {
-          const bank = appState.activeBank;
-          const slots = [];
-          for (let s = 0; s < 5; s++) for (let g = 0; g < 3; g++) slots.push(await readSlot(bank, s, g));
-          slots.forEach(applySlot);
+          await readBankMappings(appState.activeBank);
           status("Bank mappings read from device RAM; expression mapping and persistence unverified.");
         });
       });
@@ -1060,7 +1089,10 @@
           status(line.textContent);
           sysexLog.prepend(line);
         while (sysexLog.children.length > 200) sysexLog.lastChild.remove();
-        } finally { connectionBusy = false; updateApply(); }
+        } finally {
+          connectionBusy = false; updateApply();
+          if (connected()) await synchronizeConnectedBank();
+        }
       });
 
       function connectionError(method, error) {
@@ -1120,7 +1152,10 @@
           await useMidi(midiAccess.inputs.get(document.getElementById("midiInput").value),
             midiAccess.outputs.get(document.getElementById("midiOutput").value));
         } catch (error) { transportLost(); status(connectionError("MIDI", error)); }
-        finally { connectionBusy = false; updateApply(); }
+        finally {
+          connectionBusy = false; updateApply();
+          if (connected()) await synchronizeConnectedBank();
+        }
       });
       document.getElementById("btnMidiConnect").addEventListener("click", async () => {
         if (connectionBusy || operationBusy) return;
@@ -1161,7 +1196,10 @@
                 midiReconnecting = true;
                 try { await useMidi(input, output); }
                 catch (error) { status(connectionError("MIDI", error)); }
-                finally { midiReconnecting = false; updateApply(); }
+                finally {
+                  midiReconnecting = false; updateApply();
+                  if (connected()) await synchronizeConnectedBank();
+                }
               }
             }
           };
@@ -1172,7 +1210,10 @@
             await useMidi(inputs[0], outputs[0]);
           } else status("Select AirFoot input and output below. No automatic match: missing or ambiguous MIDI ports. On macOS, connect in Audio MIDI Setup first.");
         } catch (error) { transportLost(); status(connectionError("MIDI", error)); }
-        finally { connectionBusy = false; updateApply(); }
+        finally {
+          connectionBusy = false; updateApply();
+          if (connected()) await synchronizeConnectedBank();
+        }
       });
 
       const secure = window.isSecureContext;
