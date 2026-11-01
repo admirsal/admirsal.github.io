@@ -344,6 +344,63 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
         return [hdr, tsLow, ...body, tsLow, 0xf7];
       }
 
+      /* 20-byte BLE-MIDI packets work with the minimum ATT MTU (23).
+       * SysEx continuation packets omit the initial timestamp. */
+      function splitBleMidiSysEx(sysexBytes, timestampMs = 0, maxSize = 20) {
+        const bytes=Array.from(sysexBytes || []);
+        if(bytes.length<2 || bytes[0]!==0xf0 || bytes.at(-1)!==0xf7 ||
+           !bytes.slice(1,-1).every(v=>bounded(v,127)) ||
+           !Number.isInteger(maxSize)||maxSize<5)
+          throw Error("Invalid BLE SysEx frame or packet size");
+        const ms=timestampMs&0x1fff,hdr=0x80|((ms>>7)&0x3f),ts=0x80|(ms&0x7f);
+        const body=bytes.slice(0,-1),packets=[];
+        let offset=0;
+        while(offset<body.length){
+          const packet=offset===0?[hdr,ts]:[hdr];
+          const room=maxSize-packet.length,remaining=body.length-offset;
+          if(remaining+2<=room){
+            packet.push(...body.slice(offset),ts,0xf7);
+            packets.push(packet);
+            return packets;
+          }
+          const count=Math.min(room,remaining);
+          packet.push(...body.slice(offset,offset+count));
+          packets.push(packet);offset+=count;
+        }
+        packets.push([hdr,ts,0xf7]);
+        return packets;
+      }
+      function createBleSysExAssembler() {
+        let frame=[];
+        return {
+          receive(packetBytes) {
+            const bytes=Array.from(packetBytes||[]);
+            if(bytes.length<2||(bytes[0]&0xc0)!==0x80){frame=[];return null;}
+            let afterTimestamp=false;
+            for(let i=1;i<bytes.length;i++){
+              const v=bytes[i];
+              if(afterTimestamp){
+                afterTimestamp=false;
+                if(v===0xf0){frame=[0xf0];continue;}
+                if(v===0xf7){
+                  if(!frame.length)continue;
+                  const complete=[...frame,0xf7];frame=[];return complete;
+                }
+                /* Other MIDI statuses interrupt SysEx; ignore non-SysEx messages. */
+                frame=[];
+                continue;
+              }
+              if((v&0x80)!==0){afterTimestamp=true;continue;}
+              if(!frame.length)continue;
+              if(frame.length>=31){frame=[];return null;}
+              frame.push(v);
+            }
+            return null;
+          },
+          reset(){frame=[];}
+        };
+      }
+
       function unwrapBleMidiSysEx(packetBytes) {
         const clean = [];
         let inSysex = false;
@@ -643,7 +700,7 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
         encodeWriteMapping,
         encodeReadRequest,
         encodeSelectBank,
-        wrapBleMidiSysEx,
+        wrapBleMidiSysEx, splitBleMidiSysEx, createBleSysExAssembler,
         unwrapBleMidiSysEx,
         parseSysExFrame,
         createDefaultState,
@@ -694,6 +751,7 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
       let bankFileMode=null,bankFileTarget=null,bankFileImported=null,bankFileCaptured=null,bankFileReviewed=null;
       let operationBusy = false;
       let requests = AirFootCodec.createRequests(transmitSysEx);
+      const bleSysExAssembler=AirFootCodec.createBleSysExAssembler();
 
       const drafts = new Map();
       const verified = new Set();
@@ -1069,7 +1127,7 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
         document.querySelectorAll(".input-down").forEach(el => el.classList.remove("input-down"));
         verified.clear(); profileVerified.clear(); profileSupported = null; connectionGeneration++; pendingBankRefresh = null;
         $("exprLabel").textContent = $("exprValueText").textContent !== "—" ? "Disconnected · last value" : "Awaiting signal";
-        requests.disconnect();
+        requests.disconnect();bleSysExAssembler.reset();
         if (bleMidiChar && bleNotification) bleMidiChar.removeEventListener?.("characteristicvaluechanged", bleNotification);
         bleMidiChar = null; bleNotification = null;
         const oldDevice = bleDevice;
@@ -1300,8 +1358,8 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
       async function transmitSysEx(sysexFrame) {
         logHex("TX SysEx", sysexFrame);
         if (bleMidiChar) {
-          const pkt = new Uint8Array(AirFootCodec.wrapBleMidiSysEx(sysexFrame, performance.now()));
-          await bleMidiChar.writeValueWithoutResponse(pkt);
+          for(const packet of AirFootCodec.splitBleMidiSysEx(sysexFrame,performance.now()))
+            await bleMidiChar.writeValueWithoutResponse(new Uint8Array(packet));
         } else if (webMidiOut && webMidiIn && webMidiOut.state !== "disconnected" && webMidiIn.state !== "disconnected") {
           webMidiOut.send(sysexFrame);
         } else {
@@ -1332,9 +1390,10 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
 
         // 3. SysEx Frame Decoding
         // Strip BLE-MIDI headers and intermediate timestamps for uniform display and processing
-        const cleanBytes = (transport === "ble" && bytes && bytes[0] !== 0xf0) ? AirFootCodec.unwrapBleMidiSysEx(bytes) : Array.from(bytes || []);
-        logHex("RX SysEx", cleanBytes.length > 0 ? cleanBytes : bytes);
-        const parsed = AirFootCodec.parseSysExFrame(cleanBytes.length > 0 ? cleanBytes : bytes);
+        const cleanBytes = transport === "ble" ? bleSysExAssembler.receive(bytes) : Array.from(bytes || []);
+        if(!cleanBytes)return;
+        logHex("RX SysEx",cleanBytes);
+        const parsed = AirFootCodec.parseSysExFrame(cleanBytes);
 
         if (parsed.valid) {
           if (parsed.kind === "INPUT_STATE") {
