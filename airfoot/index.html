@@ -706,7 +706,8 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
           const count = Number(text.match(/;\s*(\d+)\s+changes? read back/)?.[1] || 0);
           return `Import complete · ${count} ${count === 1 ? "change" : "changes"} applied`;
         }
-        if (text.startsWith("Import incomplete")) return "Import incomplete";
+        if (text.startsWith("Import failed; original settings restored")) return "Import failed · settings restored";
+        if (text.startsWith("Import incomplete")) return "Import incomplete · use backup";
         if (/^Export incomplete|^Final device check failed; Export/.test(text)) return "Export failed";
         if (text.startsWith("All eight banks read and exported")) return "Export complete";
         if (/^Invalid AirFoot bank|^Invalid bank|^Invalid AirFoot configuration|^Could not read the configuration|^Unsupported.*file/i.test(text))
@@ -733,7 +734,8 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
         if (/permission denied|blocked MIDI|NotAllowedError|SecurityError/i.test(text)) return "Permission denied";
         if (/no device selected|no device found|NotFoundError/i.test(text)) return "Pedal not found";
         if (/^Turn on Bluetooth$|Bluetooth adapter unavailable/i.test(text)) return "Turn on Bluetooth";
-        if (/^Restore stopped|^Restore incomplete/i.test(text)) return "Restore incomplete";
+        if (text.startsWith("Restore stopped; original bank restored")) return "Restore failed · bank restored";
+        if (/^Restore stopped|^Restore incomplete/i.test(text)) return "Restore incomplete · use backup";
         if (/timed out|uncertain|mismatch|readback|could not be verified/i.test(text)) return "Could not confirm change";
         if (/rejected/i.test(text)) return "Change rejected";
         if (/^Bank changed|^Selected bank changed|^Connection or selected bank changed|^Destination changed/.test(text))
@@ -1573,8 +1575,59 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
         return AirFootCodec.importConfigurationFile({format:"airfoot-configuration",version:1,activeBank:start,banks});
       }
 
-      /* Direct import: validate the complete file before any write, then read each
-       * change back. No preview, no automatic rollback and no false NVS claim. */
+
+      /* The protocol has no cross-bank commit. Keep a recovery file before the
+       * first setting write, and verify each compensating write after a failure.
+       * A lost connection or power interruption still requires manual recovery. */
+      function downloadBankBackup(bankFile,bank){
+        const blob=new Blob([AirFootCodec.exportBankFile(bankFile)],{type:"application/json"});
+        const url=URL.createObjectURL(blob),a=document.createElement("a");
+        a.href=url;a.download="airfoot-bank"+(bank+1)+"-before-load.json";a.click();
+        setTimeout(()=>URL.revokeObjectURL(url),1000);
+      }
+      async function restoreBankSnapshot(bank,target,generation,fullBytes){
+        await selectBankForTransfer(bank,generation);
+        const current=await readBankFile(bank),diff=differences(target,current);
+        for(const {sw,gesture,action} of diff.mappings){
+          guardBank(bank,generation);
+          const desired={bank,sw,gesture,...action};
+          await requests.request(AirFootCodec.encodeWriteMapping(desired,fullBytes),
+            matching("ACK",bank,sw,gesture));
+          const actual=await readSlot(bank,sw,gesture);
+          if(!sameAction(actual,action))throw Error("Rollback mapping mismatch");
+        }
+        if(diff.expression){
+          const {channel,cc}=target.expression;
+          await requests.request([240,125,14,bank,channel,cc,bank^channel^cc,247],
+            p=>p.valid&&p.kind==="EXPR_ACK"&&p.bank===bank);
+          const state=await requests.request([240,125,7,0,247],
+            p=>p.valid&&p.kind==="DEVICE_STATE");
+          if(state.bank!==bank||state.channel!==channel||state.cc!==cc)
+            throw Error("Rollback expression mismatch");
+        }
+        if(diff.profile){
+          const desired={bank,...target.profile};
+          await requests.request(AirFootCodec.encodeWriteProfile(desired),
+            p=>p.valid&&p.kind==="PROFILE_ACK"&&p.bank===bank&&p.profileKind===desired.kind);
+          const actual=await readProfile(bank,false);
+          if(!sameProfile(actual,target.profile))throw Error("Rollback profile mismatch");
+        }
+        const final=await readBankFile(bank);
+        if(!sameBank(final,target))throw Error("Rollback final readback mismatch");
+        return final;
+      }
+      function installVerifiedBank(bank,actual){
+        appState.banks[bank].switches=actual.switches.map(gs=>gs.map(a=>({...a})));
+        appState.banks[bank].expr_ch=actual.expression.channel;
+        appState.banks[bank].expr_cc=actual.expression.cc;
+        profiles.set(bank,{...actual.profile});profileVerified.add(bank);
+        for(let sw=0;sw<5;sw++)for(let gesture=0;gesture<3;gesture++)
+          verified.add(slotKey(bank,sw,gesture));
+      }
+
+      /* Import backs up the full device before mapping writes and attempts verified
+       * rollback on failure. No cross-bank atomicity or NVS durability is implied. */
+
       async function applyCompleteConfiguration(file){
         const generation=connectionGeneration;
         const state=await requests.request([240,125,7,0,247],
@@ -1588,11 +1641,21 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
             for(const action of gestures)
               if(!AirFootCodec.validAction(action,!fullBytes))
                 throw Error("File contains mappings this pedal cannot accept");
-        let confirmed=0, changedBanks=0, completed=false, selectedRestored=false;
+
+        const backup=await captureConfiguration();
+        if(!connected()||generation!==connectionGeneration||backup.activeBank!==originalBank)
+          throw Error("Pedal changed during backup. No configuration imported.");
+        const changed=file.banks.some((bank,i)=>!sameBank(bank,backup.banks[i]))||
+          file.activeBank!==originalBank;
+        if(changed)downloadConfiguration(backup,"airfoot-backup-before-import.json");
+        let confirmed=0,changedBanks=0,touchedBank=-1;
         try{
           for(let bank=0;bank<8;bank++){
             await selectBankForTransfer(bank,generation);
+            touchedBank=bank;
             const current=await readBankFile(bank);
+            if(!sameBank(current,backup.banks[bank]))
+              throw Error("Bank "+(bank+1)+" changed since backup");
             const requested=file.banks[bank];
             const diff=differences(requested,current);
             for(const {sw,gesture,action} of diff.mappings){
@@ -1601,9 +1664,8 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
               await requests.request(AirFootCodec.encodeWriteMapping(desired,fullBytes),
                 matching("ACK",bank,sw,gesture));
               const actual=await readSlot(bank,sw,gesture);
-              if(!sameAction(actual,action))throw Error(`Bank ${bank+1}, switch ${sw+1}: readback mismatch`);
-              guardBank(bank,generation);
-              confirmed++;
+              if(!sameAction(actual,action))throw Error("Bank "+(bank+1)+", switch "+(sw+1)+": readback mismatch");
+              guardBank(bank,generation);confirmed++;
             }
             if(diff.expression){
               guardBank(bank,generation);
@@ -1613,9 +1675,8 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
               const reply=await requests.request([240,125,7,0,247],
                 p=>p.valid&&p.kind==="DEVICE_STATE");
               if(reply.bank!==bank||reply.channel!==channel||reply.cc!==cc)
-                throw Error(`Bank ${bank+1}: expression readback mismatch`);
-              guardBank(bank,generation);
-              confirmed++;
+                throw Error("Bank "+(bank+1)+": expression readback mismatch");
+              guardBank(bank,generation);confirmed++;
             }
             if(diff.profile){
               guardBank(bank,generation);
@@ -1624,47 +1685,56 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
                 p=>p.valid&&p.kind==="PROFILE_ACK"&&p.bank===bank&&p.profileKind===desired.kind);
               const actual=await readProfile(bank,false);
               if(!sameProfile(actual,requested.profile))
-                throw Error(`Bank ${bank+1}: control mode or name readback mismatch`);
-              guardBank(bank,generation);
-              confirmed++;
+                throw Error("Bank "+(bank+1)+": control mode or name readback mismatch");
+              guardBank(bank,generation);confirmed++;
             }
             const actual=await readBankFile(bank);
-            if(!sameBank(requested,actual))throw Error(`Bank ${bank+1}: final readback mismatch`);
-            appState.banks[bank].switches=actual.switches.map(gs=>gs.map(a=>({...a})));
-            appState.banks[bank].expr_ch=actual.expression.channel;
-            appState.banks[bank].expr_cc=actual.expression.cc;
-            profiles.set(bank,{...actual.profile});profileVerified.add(bank);
-            for(let sw=0;sw<5;sw++)for(let gesture=0;gesture<3;gesture++)
-              verified.add(slotKey(bank,sw,gesture));
+            if(!sameBank(requested,actual))throw Error("Bank "+(bank+1)+": final readback mismatch");
+            installVerifiedBank(bank,actual);
             changedBanks++;
-            $("draftStatus").textContent=`Importing · ${changedBanks}/8 banks`;
+            $("draftStatus").textContent="Importing · "+changedBanks+"/8 banks";
           }
-          completed=true;
+          if(!await restoreOriginalBank(file.activeBank,generation))
+            throw Error("Selected bank could not be verified");
+          const final=await requests.request([240,125,7,0,247],
+            p=>p.valid&&p.kind==="DEVICE_STATE");
+          if(!connected()||generation!==connectionGeneration||final.bank!==file.activeBank)
+            throw Error("Selected bank readback mismatch");
+          expressionTelemetry=false;showExpression(final.bank,final.channel,final.cc);
+          $("exprValueText").textContent="—";$("exprBarFill").style.width="0%";
+          renderSwitches();loadEditorFields();
+          status("Imported all eight banks; "+confirmed+" changes read back in RAM. Power-cycle persistence not checked.");
         }catch(error){
-          throw Error(`Import incomplete: ${confirmed} changes confirmed; ${changedBanks}/8 banks verified. ${error.message}. No automatic rollback.`);
-        }finally{
-          selectedRestored=await restoreOriginalBank(completed?file.activeBank:originalBank,generation);
-          if(!completed){
-            verified.clear();profileVerified.clear();
-            logText(`Import incomplete: ${confirmed} changes confirmed; ${changedBanks}/8 banks verified. No automatic rollback.`);
-          }
+          let recovered=false,rollbackError=null;
+          try{
+            if(!connected()||generation!==connectionGeneration)
+              throw Error("Pedal disconnected");
+            for(let bank=touchedBank;bank>=0;bank--){
+              const actual=await restoreBankSnapshot(bank,backup.banks[bank],generation,fullBytes);
+              installVerifiedBank(bank,actual);
+            }
+            if(!await restoreOriginalBank(originalBank,generation))
+              throw Error("Original bank could not be reselected");
+            const final=await requests.request([240,125,7,0,247],
+              p=>p.valid&&p.kind==="DEVICE_STATE");
+            if(final.bank!==originalBank)throw Error("Original bank readback mismatch");
+            expressionTelemetry=false;showExpression(final.bank,final.channel,final.cc);
+            $("exprValueText").textContent="—";$("exprBarFill").style.width="0%";
+            recovered=true;
+          }catch(failure){rollbackError=failure;}
+          if(!recovered){verified.clear();profileVerified.clear();}
+          renderSwitches();loadEditorFields();
+          if(recovered)
+            throw Error("Import failed; original settings restored. "+error.message);
+          throw Error("Import incomplete; restore using airfoot-backup-before-import.json. "+
+            error.message+"; rollback: "+(rollbackError?.message||"unavailable"));
         }
-        if(!selectedRestored)throw Error("Import incomplete: selected bank could not be verified");
-        if(!connected()||connectionGeneration!==generation)
-          throw Error("Import incomplete: pedal disconnected before final verification");
-        const final=await requests.request([240,125,7,0,247],p=>p.valid&&p.kind==="DEVICE_STATE");
-        if(final.bank!==file.activeBank)
-          throw Error("Import incomplete: selected bank readback mismatch");
-        expressionTelemetry=false;showExpression(final.bank,final.channel,final.cc);
-        $("exprValueText").textContent="—";$("exprBarFill").style.width="0%";
-        renderSwitches();loadEditorFields();
-        status(`Imported all eight banks; ${confirmed} ${confirmed === 1 ? "change" : "changes"} read back in RAM. Power-cycle persistence not checked.`);
       }
 
-      function downloadConfiguration(f){
+      function downloadConfiguration(f,filename="airfoot-configuration-v1.json"){
         const blob=new Blob([AirFootCodec.exportConfigurationFile(f)],{type:"application/json"});
         const url=URL.createObjectURL(blob), a=document.createElement("a");
-        a.href=url;a.download="airfoot-configuration-v1.json";a.click();
+        a.href=url;a.download=filename;a.click();
         setTimeout(()=>URL.revokeObjectURL(url),1000);
       }
 
@@ -1763,7 +1833,7 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
         }
         const diff=review.diff;
         const total=diff.mappings.length+Number(diff.profile)+Number(diff.expression);
-        let done=0;
+        let done=0,rollbackArmed=false;
         await operation(async()=>{
           try{
             guardBank(bank,review.generation);
@@ -1772,6 +1842,10 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
               throw Error("Destination changed since comparison. Compare again.");
             if(diff.mappings.some(({action})=>!AirFootCodec.validAction(action,!fullByteMappings)))
               throw Error("Mapping cannot be sent using this device's supported protocol.");
+            if(total>0){
+              downloadBankBackup(current,bank);
+              rollbackArmed=true;
+            }
             for(const {sw,gesture,action} of diff.mappings){
               guardBank(bank,review.generation);
               const desired={bank,sw,gesture,...action};
@@ -1822,9 +1896,23 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
             status(`Bank ${bank+1} restored and read back. Persistence unverified.`);
           }catch(error){
             bankFileReviewed=null;$("bankFileConfirm").checked=false;
-            $("btnBankFileApply").hidden=true;verified.clear();profileVerified.delete(bank);
-            $("bankFileStatus").textContent="Restore incomplete";
-            throw Error(`Restore stopped: ${done}/${total} changes confirmed. ${error.message}. No automatic rollback; reconnect and compare again.`);
+            $("btnBankFileApply").hidden=true;
+            let recovered=false,rollbackError=null;
+            if(rollbackArmed){
+              try{
+                const actual=await restoreBankSnapshot(bank,review.current,review.generation,fullByteMappings);
+                installVerifiedBank(bank,actual);
+                expressionMapping={bank,channel:actual.expression.channel,cc:actual.expression.cc};
+                recovered=true;
+              }catch(failure){rollbackError=failure;}
+            }
+            if(!recovered){verified.clear();profileVerified.delete(bank);}
+            renderSwitches();loadEditorFields();
+            $("bankFileStatus").textContent=recovered?"Original bank restored":"Restore incomplete";
+            if(recovered)throw Error("Restore stopped; original bank restored. "+error.message);
+            if(!rollbackArmed)throw Error("Restore stopped: "+error.message);
+            throw Error("Restore incomplete; load airfoot-bank"+(bank+1)+"-before-load.json. "+
+              error.message+"; rollback: "+(rollbackError?.message||"unavailable"));
           }
         });
       });
@@ -1896,8 +1984,21 @@ body,.bank-title,.editor-title,.expression-label,.section-name,.pedal-name{color
           bleMidiChar.addEventListener("characteristicvaluechanged", bleNotification);
           await bleMidiChar.startNotifications();
           if (bleDevice !== device || !device.gatt.connected) throw new Error("Bluetooth disconnected during setup");
+          /* GATT subscription alone does not establish a usable settings session.
+           * Require the same read-only device handshake as USB WebMIDI. */
+          const state = await requests.request([0xf0,0x7d,0x07,0,0xf7],
+            parsed => parsed.valid && parsed.kind === "DEVICE_STATE");
+          if (bleDevice !== device || !device.gatt.connected ||
+              !Number.isInteger(state.bank) || state.bank < 0 || state.bank >= 8)
+            throw new Error("AirFoot did not respond with valid settings");
+          setCapabilities(state);
+          appState.activeBank = state.bank;
+          $("bankSelect").value = state.bank;
+          expressionMapping = {bank:state.bank,channel:state.channel,cc:state.cc};
+          expressionTelemetry = false;
+          renderSwitches();loadEditorFields();
           closeDialog();
-          status("Connected. Active bank unverified; select a bank to confirm. Read mappings to confirm device RAM; persistence unverified.");
+          status("Connected. Reading your pedal settings…");
 
           document.getElementById("connStatus").textContent = "Bluetooth";
           operatorEvent("Pedal connected via Bluetooth"); renderConnection();
